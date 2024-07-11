@@ -19,6 +19,7 @@ type LazyDB[T any] struct {
 	cachePath  string
 
 	db              *DB[T]
+	updating        bool
 	updated         time.Time
 	updatedInterval time.Duration
 
@@ -53,9 +54,23 @@ func NewLazyDB[T any](dbPath string, sep byte, rangeKind RangeKind, cacheLevel i
 	}, nil
 }
 
+func (d *LazyDB[T]) updateFromRemote() {
+	_, modTime, err := downloadOrCache(d.cachePath, d.dbPath, true)
+	d.mut.Lock()
+	defer d.mut.Unlock()
+	if err == nil {
+		_ = d.db.Reload()
+		d.updated = modTime
+	}
+	d.updating = false
+}
+
 func (d *LazyDB[T]) init() error {
 	d.mut.Lock()
 	defer d.mut.Unlock()
+	if d.updating {
+		return nil
+	}
 
 	if !d.updated.IsZero() && time.Since(d.updated) < d.updatedInterval {
 		return nil
@@ -76,12 +91,9 @@ func (d *LazyDB[T]) init() error {
 			d.db = db
 			d.updated = modTime
 		} else {
-			// TODO: Update without affecting the service
-			_, modTime, err := downloadOrCache(d.cachePath, d.dbPath, true)
-			if err == nil {
-				_ = d.db.Reload()
-			}
-			d.updated = modTime
+
+			d.updating = true
+			go d.updateFromRemote()
 		}
 	default:
 		if d.db == nil {

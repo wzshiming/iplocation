@@ -12,17 +12,17 @@ import (
 	"unsafe"
 )
 
-func keySepAfter2(s byte) func(a []byte) ([]byte, []byte, bool) {
-	return func(a []byte) ([]byte, []byte, bool) {
+func keySepAfter2(s byte) func(a []byte) ([]byte, []byte) {
+	return func(a []byte) ([]byte, []byte) {
 		i := bytes.IndexByte(a, s)
 		if i == -1 {
-			return nil, nil, false
+			return a, nil
 		}
 		j := bytes.IndexByte(a[i+1:], s)
 		if j == -1 {
-			return nil, nil, false
+			return a, nil
 		}
-		return a[:i+j+1], a[i+j+2:], true
+		return a[:i+j+1], a[i+j+2:]
 	}
 }
 

@@ -4,18 +4,23 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/netip"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/wzshiming/iplocation/inject"
 	"github.com/wzshiming/iplocation/server"
 	"github.com/wzshiming/iplocation/source"
 )
 
 var (
-	addr string
+	addr        string
+	querySource string = "sapics-geolite2-city"
 )
 
 var (
@@ -32,23 +37,46 @@ var (
 		},
 	}
 	cmdQuery = cobra.Command{
-		Use:   "query [source] [ip]",
+		Use:   "query [ip]",
 		Short: "Run iplocation query",
-		Args:  cobra.ExactArgs(2),
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			src, ok := source.Sources[args[0]]
+			src, ok := source.Sources[querySource]
 			if !ok {
-				return fmt.Errorf("source not found: %s", args[0])
+				return fmt.Errorf("source not found: %s", querySource)
 			}
-			addr, err := netip.ParseAddr(args[1])
+			addr, err := netip.ParseAddr(args[0])
 			if err != nil {
 				return err
 			}
 			data, err := src.Lookup(addr)
 			if err != nil {
-				return err
+				data = map[string]any{
+					"error": err.Error(),
+				}
 			}
-			return json.NewEncoder(os.Stdout).Encode(data)
+			encoder := json.NewEncoder(os.Stdout)
+			encoder.SetIndent("", "  ")
+			return encoder.Encode(data)
+		},
+	}
+	injectServer = cobra.Command{
+		Use:   "inject",
+		Short: "Inject IP location",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			src, ok := source.Sources[querySource]
+			if !ok {
+				return fmt.Errorf("source not found: %s", querySource)
+			}
+			_, err := io.Copy(os.Stdout, inject.NewReader(os.Stdin, func(addr netip.Addr) ([]byte, bool) {
+				data, err := src.Lookup(addr)
+				if err != nil {
+					return nil, false
+				}
+				return []byte(fmt.Sprintf("<%s>%s", data, addr)), true
+			}))
+			return err
 		},
 	}
 	cmdList = cobra.Command{
@@ -56,18 +84,23 @@ var (
 		Short: "Run iplocation list source",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			keys := make([]string, 0, len(source.Sources))
-			for k := range source.Sources {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-			for _, k := range keys {
-				fmt.Println(k)
-			}
-			return nil
+			encoder := json.NewEncoder(os.Stdout)
+			encoder.SetIndent("", "  ")
+			return encoder.Encode(allSourceList)
 		},
 	}
 )
+
+var allSourceList = allSource()
+
+func allSource() []string {
+	keys := make([]string, 0, len(source.Sources))
+	for k := range source.Sources {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
 
 func main() {
 	ctx := context.Background()
@@ -75,6 +108,8 @@ func main() {
 	cmdRoot.AddCommand(&cmdServer)
 	cmdRoot.AddCommand(&cmdQuery)
 	cmdRoot.AddCommand(&cmdList)
+	cmdRoot.AddCommand(&injectServer)
+	cmdRoot.PersistentFlags().StringVar(&querySource, "source", querySource, "one of ("+strings.Join(allSourceList, ", ")+")")
 	err := cmdRoot.ExecuteContext(ctx)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
