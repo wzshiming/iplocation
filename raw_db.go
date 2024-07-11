@@ -38,7 +38,8 @@ func NewRawDB(path string, sep byte, rangeKind RangeKind, cacheLevel int) (*RawD
 	case HexRange:
 		ipToKey = ip2NumberHex
 	}
-	bs := bsbf.NewBSBF(path,
+	bs := bsbf.NewBSBF(
+		bsbf.WithPath(path),
 		bsbf.WithKeySepFunc(keySepAfter2(sep)),
 		bsbf.WithCmpFunc(cmpInBetween(sep)),
 		bsbf.WithCacheLevel(cacheLevel),
@@ -56,14 +57,14 @@ func (d *RawDB) Lookup(addr netip.Addr) ([]byte, error) {
 		return nil, err
 	}
 
-	_, _, got, ok, err := d.db.Search(ip)
+	iter, ok, err := d.db.Search(ip)
 	if err != nil {
 		return nil, err
 	}
 	if !ok {
 		return nil, fmt.Errorf("%w: ip %s", ErrNotFound, addr)
 	}
-	return got, nil
+	return iter.Value(), nil
 }
 
 func (d *RawDB) Reload() error {
