@@ -72,7 +72,7 @@ var (
 			_, err := io.Copy(os.Stdout, inject.NewReader(os.Stdin, func(addr netip.Addr) ([]byte, bool) {
 				data, err := src.Lookup(addr)
 				if err != nil {
-					return nil, false
+					return []byte(fmt.Sprintf("<>%s", addr)), true
 				}
 				return []byte(fmt.Sprintf("<%s>%s", data, addr)), true
 			}))
